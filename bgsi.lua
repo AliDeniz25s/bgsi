@@ -8,6 +8,7 @@ local RunService = game:GetService("RunService")
 local Lighting = game:GetService("Lighting")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local VirtualUser = game:GetService("VirtualUser")
 
@@ -41,6 +42,42 @@ local discoveredEggs = {}
 local discoveredIslands = {}
 
 -- ==========================================
+--  CONFIG SYSTEM (Save / Load Persistent Data)
+-- ==========================================
+local CONFIG_FILE_NAME = "bgsi_config.json"
+
+local function saveConfig()
+    local success, err = pcall(function()
+        local configData = {
+            SelectedEggName = _G.SelectedEggName,
+            SelectedIslandName = _G.SelectedIslandName
+        }
+        local encoded = HttpService:JSONEncode(configData)
+        if writefile then
+            writefile(CONFIG_FILE_NAME, encoded)
+        end
+    end)
+    return success
+end
+
+local function loadConfig()
+    local success, err = pcall(function()
+        if isfile and isfile(CONFIG_FILE_NAME) then
+            local content = readfile(CONFIG_FILE_NAME)
+            local decoded = HttpService:JSONDecode(content)
+            if decoded then
+                _G.SelectedEggName = decoded.SelectedEggName or ""
+                _G.SelectedIslandName = decoded.SelectedIslandName or ""
+            end
+        end
+    end)
+    return success
+end
+
+-- Attempt to load saved config immediately upon startup
+loadConfig()
+
+-- ==========================================
 --  ANTI-AFK SYSTEMS (Delta & Infinite Yield)
 -- ==========================================
 local function triggerAntiAfk()
@@ -66,7 +103,6 @@ end)
 --  AUTO-CLAIM PLAYTIME REWARDS (1 to 9 every 1.5 Hours)
 -- ==========================================
 task.spawn(function()
-    -- Initial short delay on startup before first check
     task.wait(5)
     while ScreenGui.Parent do
         pcall(function()
@@ -80,11 +116,10 @@ task.spawn(function()
                 for i = 1, 9 do
                     if not ScreenGui.Parent then break end
                     Event:InvokeServer("ClaimPlaytime", i)
-                    task.wait(0.5) -- Brief buffer between sequential claims
+                    task.wait(0.5)
                 end
             end
         end)
-        -- 1.5 hours = 5400 seconds
         task.wait(5400)
     end
 end)
@@ -165,7 +200,7 @@ game:GetService("UserInputService").InputChanged:Connect(function(input)
 end)
 
 -- ==========================================
---  TAB NAVIGATION BAR
+--  TAB NAVIGATION BAR (4 Tabs Now)
 -- ==========================================
 local tabNavFrame = Instance.new("Frame")
 tabNavFrame.Size = UDim2.new(1, -20, 0, 32)
@@ -176,7 +211,7 @@ tabNavFrame.Parent = mainFrame
 local tabLayout = Instance.new("UIListLayout", tabNavFrame)
 tabLayout.FillDirection = Enum.FillDirection.Horizontal
 tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
-tabLayout.Padding = UDim.new(0, 6)
+tabLayout.Padding = UDim.new(0, 4)
 
 local tabContents = Instance.new("Folder")
 tabContents.Name = "TabContents"
@@ -204,45 +239,48 @@ end
 local islandPanel = createTabPanel("Islands")
 local farmPanel = createTabPanel("AutoFarm")
 local hatchPanel = createTabPanel("AutoHatch")
+local settingsPanel = createTabPanel("Settings")
 
-local function switchTab(selectedPanel, selectedButton)
+local function switchTab(selectedPanel)
     islandPanel.Visible = (selectedPanel == islandPanel)
     farmPanel.Visible = (selectedPanel == farmPanel)
     hatchPanel.Visible = (selectedPanel == hatchPanel)
+    settingsPanel.Visible = (selectedPanel == settingsPanel)
 end
 
 local function createTabButton(name, order, targetPanel)
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0.32, 0, 1, 0)
+    btn.Size = UDim2.new(0.235, 0, 1, 0)
     btn.LayoutOrder = order
     btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
     btn.Text = name
     btn.TextColor3 = Color3.fromRGB(255, 255, 255)
     btn.Font = Enum.Font.SourceSansBold
-    btn.TextSize = 13
+    btn.TextSize = 12
     btn.Parent = tabNavFrame
     Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
     
     btn.MouseButton1Click:Connect(function()
-        switchTab(targetPanel, btn)
+        switchTab(targetPanel)
     end)
     return btn
 end
 
 createTabButton("Islands", 1, islandPanel)
-createTabButton("Auto Farm", 2, farmPanel)
-createTabButton("Auto Hatch", 3, hatchPanel)
+createTabButton("Farm", 2, farmPanel)
+createTabButton("Hatch", 3, hatchPanel)
+createTabButton("Config", 4, settingsPanel)
 
 -- Default to Islands tab active
 islandPanel.Visible = true
 
 -- ==========================================
---  TAB 1: ISLAND TP (Named by World Folder Names)
+--  TAB 1: ISLAND TP
 -- ==========================================
 local selectIslandBtn = Instance.new("TextButton")
 selectIslandBtn.Size = UDim2.new(1, 0, 0, 38)
 selectIslandBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-selectIslandBtn.Text = "Select Island ▼"
+selectIslandBtn.Text = (_G.SelectedIslandName ~= "" and (_G.SelectedIslandName .. " ▼")) or "Select Island ▼"
 selectIslandBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 selectIslandBtn.Font = Enum.Font.SourceSansBold
 selectIslandBtn.TextSize = 14
@@ -328,6 +366,7 @@ local function refreshIslands()
             _G.SelectedIslandName = islandName
             selectIslandBtn.Text = islandName .. " ▼"
             islandDropdown.Visible = false
+            saveConfig() -- auto-save when changed
         end)
     end
 end
@@ -354,7 +393,7 @@ tpIslandBtn.MouseButton1Click:Connect(function()
 end)
 
 -- ==========================================
---  TAB 2: AUTO-FARM (Integrated Full Script)
+--  TAB 2: AUTO-FARM
 -- ==========================================
 local farmToggleBtn = Instance.new("TextButton")
 farmToggleBtn.Size = UDim2.new(1, 0, 0, 45)
@@ -603,12 +642,12 @@ task.spawn(function()
 end)
 
 -- ==========================================
---  TAB 3: AUTO-HATCH & EGG TELEPORT
+--  TAB 3: AUTO-HATCH
 -- ==========================================
 local selectEggBtn = Instance.new("TextButton")
 selectEggBtn.Size = UDim2.new(1, 0, 0, 38)
 selectEggBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-selectEggBtn.Text = "Select Egg ▼"
+selectEggBtn.Text = (_G.SelectedEggName ~= "" and (_G.SelectedEggName .. " ▼")) or "Select Egg ▼"
 selectEggBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 selectEggBtn.Font = Enum.Font.SourceSansBold
 selectEggBtn.TextSize = 14
@@ -682,6 +721,7 @@ local function refreshEggs()
             _G.SelectedEggName = eggName
             selectEggBtn.Text = eggName .. " ▼"
             eggDropdown.Visible = false
+            saveConfig() -- auto-save when changed
         end)
     end
 end
@@ -713,7 +753,6 @@ hatchToggleBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- FOV Lock & Egg Suppressor for Hatch Loop
 RunService.RenderStepped:Connect(function()
     if _G.HatchLoop and ScreenGui.Parent then
         local camera = Workspace.CurrentCamera
@@ -786,6 +825,62 @@ task.spawn(function()
 end)
 
 -- ==========================================
+--  TAB 4: CONFIG & SETTINGS MANAGEMENT
+-- ==========================================
+local saveConfigBtn = Instance.new("TextButton")
+saveConfigBtn.Size = UDim2.new(1, 0, 0, 42)
+saveConfigBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 80)
+saveConfigBtn.Text = "Save Config"
+saveConfigBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+saveConfigBtn.Font = Enum.Font.SourceSansBold
+saveConfigBtn.TextSize = 14
+saveConfigBtn.Parent = settingsPanel
+Instance.new("UICorner", saveConfigBtn).CornerRadius = UDim.new(0, 6)
+
+local loadConfigBtn = Instance.new("TextButton")
+loadConfigBtn.Size = UDim2.new(1, 0, 0, 42)
+loadConfigBtn.BackgroundColor3 = Color3.fromRGB(70, 130, 180)
+loadConfigBtn.Text = "Load Config"
+loadConfigBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+loadConfigBtn.Font = Enum.Font.SourceSansBold
+loadConfigBtn.TextSize = 14
+loadConfigBtn.Parent = settingsPanel
+Instance.new("UICorner", loadConfigBtn).CornerRadius = UDim.new(0, 6)
+
+local configStatusLabel = Instance.new("TextLabel")
+configStatusLabel.Size = UDim2.new(1, 0, 0, 50)
+configStatusLabel.BackgroundTransparency = 1
+configStatusLabel.Text = "Config system active.\nSaves automatically on change or via button."
+configStatusLabel.TextColor3 = Color3.fromRGB(170, 170, 170)
+configStatusLabel.Font = Enum.Font.SourceSans
+configStatusLabel.TextSize = 12
+configStatusLabel.Parent = settingsPanel
+
+saveConfigBtn.MouseButton1Click:Connect(function()
+    local success = saveConfig()
+    if success then
+        configStatusLabel.Text = "Status: Config successfully saved!"
+        configStatusLabel.TextColor3 = Color3.fromRGB(80, 255, 80)
+    else
+        configStatusLabel.Text = "Status: Failed to save config!"
+        configStatusLabel.TextColor3 = Color3.fromRGB(255, 80, 80)
+    end
+end)
+
+loadConfigBtn.MouseButton1Click:Connect(function()
+    local success = loadConfig()
+    if success then
+        if _G.SelectedEggName ~= "" then selectEggBtn.Text = _G.SelectedEggName .. " ▼" end
+        if _G.SelectedIslandName ~= "" then selectIslandBtn.Text = _G.SelectedIslandName .. " ▼" end
+        configStatusLabel.Text = "Status: Config successfully loaded!"
+        configStatusLabel.TextColor3 = Color3.fromRGB(80, 255, 80)
+    else
+        configStatusLabel.Text = "Status: No valid config found or failed!"
+        configStatusLabel.TextColor3 = Color3.fromRGB(255, 80, 80)
+    end
+end)
+
+-- ==========================================
 --  KILL SCRIPT HANDLER
 -- ==========================================
 killButton.MouseButton1Click:Connect(function()
@@ -798,4 +893,4 @@ killButton.MouseButton1Click:Connect(function()
     ScreenGui:Destroy()
 end)
 
-print("Master Dashboard: Successfully loaded with Playtime Rewards & Exact World Folder Names!")
+print("Master Dashboard: Successfully loaded with Persistent Config System!")
